@@ -28,3 +28,8 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
 def ensure_dirs() -> None:
     """Create the runtime data directories (idempotent)."""
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def thumb_path(image_id: str, size: int) -> Path:
+    """Local cache path for an image's thumbnail at a given pixel size."""
+    return IMAGES_DIR / f"{image_id}_{size}.jpg"

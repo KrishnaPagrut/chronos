@@ -8,7 +8,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import pairing
+from . import config, db, pairing
 
 
 def _normalize_bbox_arg(argv: list[str]) -> list[str]:
@@ -30,8 +30,108 @@ def _normalize_bbox_arg(argv: list[str]) -> list[str]:
     return out
 
 
+def _parse_bbox(text: str) -> tuple[float, float, float, float]:
+    """Parse ``minLon,minLat,maxLon,maxLat`` into ordered (w, s, e, n) floats."""
+    parts = [p.strip() for p in text.split(",")]
+    if len(parts) != 4:
+        raise argparse.ArgumentTypeError(
+            "bbox must be minLon,minLat,maxLon,maxLat (4 comma-separated numbers)"
+        )
+    try:
+        lon1, lat1, lon2, lat2 = (float(p) for p in parts)
+    except ValueError:
+        raise argparse.ArgumentTypeError("bbox values must be numbers")
+    west, east = sorted((lon1, lon2))
+    south, north = sorted((lat1, lat2))
+    if west == east or south == north:
+        raise argparse.ArgumentTypeError("bbox has zero width or height")
+    return west, south, east, north
+
+
 def cmd_ingest(args: argparse.Namespace) -> int:
-    print("ingest: implemented in milestone 2 (Mapillary fetch + candidate pairs).")
+    # Import here so the CLI (and its --help) load without httpx present.
+    from . import mapillary
+
+    if not config.MAPILLARY_TOKEN:
+        print("error: MAPILLARY_TOKEN is not set (add it to .env).", file=sys.stderr)
+        return 1
+
+    west, south, east, north = args.bbox
+    config.ensure_dirs()
+    db.init_db()
+    conn = db.connect()
+    try:
+        before_images = db.count_images(conn)
+        before_pairs = db.count_pairs(conn)
+
+        print(f"Fetching Mapillary imagery for bbox {west},{south},{east},{north} ...")
+        with mapillary.MapillaryClient(
+            conn, config.MAPILLARY_TOKEN, refresh=args.refresh
+        ) as client:
+            features = client.fetch_bbox(west, south, east, north, limit=args.limit)
+            for feat in features:
+                db.upsert_image(
+                    conn,
+                    id=feat.id,
+                    lon=feat.lon,
+                    lat=feat.lat,
+                    heading=feat.heading,
+                    captured_at=feat.captured_at,
+                    sequence_id=feat.sequence_id,
+                    is_pano=feat.is_pano,
+                    thumb_url=feat.thumb_1024_url,
+                )
+            conn.commit()
+            print(f"  fetched {len(features)} images "
+                  f"({db.count_images(conn) - before_images} new).")
+
+            print("Building candidate pairs ...")
+            images = db.load_images(conn)
+            pairs = pairing.find_pairs(
+                images,
+                max_dist_m=args.max_dist,
+                max_heading_deg=args.max_heading,
+                min_gap_days=args.min_gap_days,
+            )
+            new_pairs = 0
+            for p in pairs:
+                if db.insert_pair(conn, p):
+                    new_pairs += 1
+            conn.commit()
+            print(f"  {len(pairs)} candidate pairs ({new_pairs} new).")
+
+            # Cache thumbnails only for images that made it into a pair.
+            paired_ids = {pid for p in pairs for pid in (p.older_id, p.newer_id)}
+            url_by_id = {f.id: f.thumb_1024_url for f in features}
+            downloaded = 0
+            for image_id in paired_ids:
+                path = config.thumb_path(image_id, 1024)
+                if path.exists():
+                    db.set_thumb_path(conn, image_id, str(path))
+                    continue
+                url = url_by_id.get(image_id)
+                if not url:
+                    row = conn.execute(
+                        "SELECT thumb_url FROM images WHERE id = ?", (image_id,)
+                    ).fetchone()
+                    url = row["thumb_url"] if row else None
+                if not url:
+                    continue
+                client.download_thumb(url, path)
+                db.set_thumb_path(conn, image_id, str(path))
+                downloaded += 1
+            conn.commit()
+            print(f"  cached {downloaded} new thumbnails.")
+
+        print(
+            f"\nDone. images: {db.count_images(conn)} "
+            f"(+{db.count_images(conn) - before_images}), "
+            f"pairs: {db.count_pairs(conn)} "
+            f"(+{db.count_pairs(conn) - before_pairs}), "
+            f"unjudged: {db.count_unjudged(conn)}."
+        )
+    finally:
+        conn.close()
     return 0
 
 
@@ -53,8 +153,8 @@ def build_parser() -> argparse.ArgumentParser:
         "ingest", help="fetch Mapillary imagery for a bbox and build candidate pairs"
     )
     p_ingest.add_argument(
-        "--bbox", required=True, metavar="minLon,minLat,maxLon,maxLat",
-        help="bounding box to ingest",
+        "--bbox", required=True, type=_parse_bbox,
+        metavar="minLon,minLat,maxLon,maxLat", help="bounding box to ingest",
     )
     p_ingest.add_argument(
         "--limit", type=int, default=2000, help="max images to fetch (default: 2000)"
