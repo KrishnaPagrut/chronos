@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chronos — street-level change detection</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>◷</text></svg>">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="mark" aria-hidden="true">◷</span>
+      <span class="name">CHRONOS</span>
+      <span class="tag">street-level change detection</span>
+    </div>
+    <div class="stats" aria-label="Run statistics">
+      <span class="stat"><span class="k">Images</span><span class="v" id="statImages">–</span></span>
+      <span class="stat"><span class="k">Pairs</span><span class="v" id="statPairs">–</span></span>
+      <span class="stat"><span class="k">Judged</span><span class="v" id="statJudged">–</span></span>
+      <span class="stat"><span class="k">Changes</span><span class="v changed" id="statChanged">–</span></span>
+      <button class="themebtn" id="themeBtn" title="Toggle theme" aria-label="Toggle color theme">◐</button>
+    </div>
+  </header>
+
+  <div class="shell">
+    <div class="map-wrap">
+      <div id="map"></div>
+
+      <div class="filters" role="group" aria-label="Magnitude filter">
+        <span class="filters-k">Magnitude</span>
+        <button class="mchip active" data-mag="major">Major</button>
+        <button class="mchip active" data-mag="moderate">Moderate</button>
+        <button class="mchip" data-mag="subtle">Subtle</button>
+      </div>
+
+      <div class="legend">
+        <h2>Change category</h2>
+        <ul id="legendList"></ul>
+        <label class="toggle">
+          <input type="checkbox" id="showUnchanged">
+          show unchanged pairs
+        </label>
+      </div>
+
+      <div class="ribbon" id="ribbon" hidden></div>
+    </div>
+
+    <aside class="panel" aria-label="Selected change details">
+      <div class="panel-scroll" id="panelEmpty">
+        <div class="empty">
+          <span class="empty-mark" aria-hidden="true">◷</span>
+          <p>Select a marker to compare<br>before &amp; after imagery.</p>
+        </div>
+      </div>
+
+      <div class="panel-scroll" id="panelDetail" hidden>
+        <div class="loc">
+          <h1 id="locTitle">–</h1>
+          <div class="coords" id="locCoords">–</div>
+        </div>
+
+        <div class="chiprow">
+          <span class="chip" id="catChip"><span class="swatch"></span><span id="catName">–</span></span>
+          <span class="magtag" id="magTag">–</span>
+          <span class="conf">
+            <span class="k">Conf</span>
+            <span class="bar"><span class="fill" id="confFill"></span></span>
+            <span class="num" id="confNum">–</span>
+          </span>
+        </div>
+
+        <div class="viewer" id="viewer">
+          <img class="layer before" id="imgBefore" alt="Older capture">
+          <img class="layer after" id="imgAfter" alt="Newer capture">
+          <span class="datepill before"><b>BEFORE</b> <span id="dateBefore">–</span></span>
+          <span class="datepill after"><b>AFTER</b> <span id="dateAfter">–</span></span>
+          <input type="range" id="slider" min="0" max="100" value="50" step="0.5"
+                 aria-label="Before and after comparison slider">
+          <div class="handle" id="handle"></div>
+          <div class="grip" aria-hidden="true">⇔</div>
+        </div>
+
+        <blockquote class="evidence">
+          <span id="evidence">–</span>
+          <span class="src">Model evidence · structured output</span>
+        </blockquote>
+
+        <div class="descs">
+          <div class="desc"><span class="k" id="descOldK">BEFORE</span><span id="descOld">–</span></div>
+          <div class="desc"><span class="k" id="descNewK">AFTER</span><span id="descNew">–</span></div>
+        </div>
+
+        <dl class="meta">
+          <dt>Captured</dt><dd id="metaCaptured">–</dd>
+          <dt>Time gap</dt><dd id="metaGap">–</dd>
+          <dt>Distance</dt><dd id="metaDist">–</dd>
+          <dt>Heading Δ</dt><dd id="metaHeading">–</dd>
+          <dt>Judged by</dt><dd id="metaModel">–</dd>
+        </dl>
+
+        <div class="pairid" id="pairId">–</div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

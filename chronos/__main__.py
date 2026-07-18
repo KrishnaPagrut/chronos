@@ -230,7 +230,11 @@ def cmd_inspect(args: argparse.Namespace) -> int:
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
-    print("serve: implemented in milestone 4 (map UI).")
+    import uvicorn
+
+    db.init_db()
+    print(f"Chronos map: http://127.0.0.1:{args.port}")
+    uvicorn.run("chronos.server:app", host="127.0.0.1", port=args.port, log_level="warning")
     return 0
 
 
