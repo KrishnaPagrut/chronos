@@ -135,8 +135,97 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     return 0
 
 
+def _resolve_thumb(image_id: str, stored: str | None, size: int) -> str | None:
+    """Best local thumbnail for an image: requested size, then any cached copy."""
+    from pathlib import Path
+
+    preferred = config.thumb_path(image_id, size)
+    if preferred.exists():
+        return str(preferred)
+    if stored and Path(stored).exists():
+        return stored
+    other = config.thumb_path(image_id, 2048 if size == 1024 else 1024)
+    return str(other) if other.exists() else None
+
+
 def cmd_inspect(args: argparse.Namespace) -> int:
-    print("inspect: implemented in milestone 3 (OpenAI vision judge).")
+    from . import inspector
+
+    db.init_db()
+    conn = db.connect()
+    try:
+        rows = db.pairs_to_judge(conn, limit=args.limit, retry_errors=args.retry_errors)
+        model = args.model or config.OPENAI_MODEL
+
+        if args.dry_run:
+            per_pair_in, total = inspector.estimate_cost(len(rows), args.image_size, model)
+            print(f"{len(rows)} pair(s) would be judged with {model} "
+                  f"at {args.image_size}px ({db.count_unjudged(conn)} unjudged total).")
+            print(f"~{per_pair_in} input tokens/pair; estimated cost ~${total:.2f}. "
+                  "No API calls made.")
+            return 0
+
+        if not config.OPENAI_API_KEY:
+            print("error: OPENAI_API_KEY is not set (add it to .env).", file=sys.stderr)
+            return 1
+        if not rows:
+            print("Nothing to judge: no unjudged pairs. Run ingest first.")
+            return 0
+
+        template = inspector.load_prompt_template()
+        judged = changed_count = errors = 0
+        with inspector.make_client() as client:
+            for row in rows:
+                older = _resolve_thumb(row["older_id"], row["older_thumb"], args.image_size)
+                newer = _resolve_thumb(row["newer_id"], row["newer_thumb"], args.image_size)
+                if not older or not newer:
+                    db.set_pair_status(conn, row["id"], "error", "missing thumbnail")
+                    conn.commit()
+                    errors += 1
+                    print(f"  {row['id']}: error (missing thumbnail)")
+                    continue
+
+                prompt = inspector.render_prompt(
+                    template, row["older_captured_at"], row["newer_captured_at"]
+                )
+                payload = inspector.build_payload(model, prompt, older, newer)
+                try:
+                    report, raw = inspector.request_judgment(client, payload)
+                except inspector.InspectorError as exc:
+                    db.set_pair_status(conn, row["id"], "error", str(exc))
+                    conn.commit()
+                    errors += 1
+                    print(f"  {row['id']}: error ({exc})")
+                    continue
+
+                report = inspector.apply_confidence_floor(report)
+                db.insert_judgment(
+                    conn,
+                    pair_id=row["id"],
+                    model=model,
+                    old_description=report.old_description,
+                    new_description=report.new_description,
+                    changed=report.changed,
+                    category=report.category,
+                    magnitude=report.magnitude,
+                    confidence=report.confidence,
+                    evidence=report.evidence,
+                    raw_json=raw,
+                )
+                db.set_pair_status(conn, row["id"], "judged")
+                conn.commit()
+                judged += 1
+                if report.changed:
+                    changed_count += 1
+                    print(f"  {row['id']}: {report.category} ({report.magnitude}, "
+                          f"{report.confidence:.2f})")
+                else:
+                    print(f"  {row['id']}: no_change ({report.confidence:.2f})")
+
+        print(f"\nDone. judged: {judged}, changed: {changed_count}, errors: {errors}, "
+              f"unjudged remaining: {db.count_unjudged(conn)}.")
+    finally:
+        conn.close()
     return 0
 
 

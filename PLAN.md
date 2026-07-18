@@ -68,8 +68,9 @@ stdlib `inspect` module; the CLI subcommand is still `inspect`.)
 - **pairs** — `id` TEXT PK = `"<older_id>_<newer_id>"` (deterministic → idempotent
   re-ingest), `older_id`, `newer_id`, `distance_m`, `heading_diff_deg`, `gap_days`,
   `score`, `status` (`candidate` | `judged` | `error`), `error`, `created_at`.
-- **judgments** — `pair_id` PK/FK, `model`, `changed` INT, `category`, `magnitude`,
-  `confidence`, `evidence`, `raw_json`, `created_at`.
+- **judgments** — `pair_id` PK/FK, `model`, `old_description`, `new_description`,
+  `changed` INT, `category`, `magnitude` (kept on every row, even `no_change`,
+  for per-tier precision stats), `confidence`, `evidence`, `raw_json`, `created_at`.
 - **api_cache** — `key` PK (hash of URL+params), `body`, `fetched_at`. Caches
   Mapillary responses so re-running `ingest` is free unless `--refresh`.
 
@@ -123,14 +124,20 @@ greedy uniqueness.
   base64 images ("OLDER, captured 2018-06-11" / "NEWER, captured 2024-09-02"),
   detail high.
 - **Structured outputs** (`response_format: json_schema`, `strict: true`),
-  mirrored by a pydantic model:
-  `changed` bool · `category` enum(`construction`, `demolition`,
-  `storefront_change`, `signage`, `road_infrastructure`, `surface_condition`,
-  `street_furniture`, `vegetation`, `other`, `no_change`) ·
-  `magnitude` enum(`major`, `moderate`, `subtle`) — the detection-floor axis ·
-  `confidence` 0–1 · `evidence` string (one sentence).
-  ⚠ Must agree with your `inspector.md` — when you paste it we reconcile in
-  whichever direction you prefer.
+  mirrored by a pydantic model. Field order is generation order — the model
+  must describe before it judges:
+  `old_description` · `new_description` · `changed` bool ·
+  `category` enum(`construction`, `demolition`, `storefront_change`, `signage`,
+  `road_infrastructure`, `surface_condition`, `street_furniture`, `vegetation`,
+  `other`, `no_change`) · `magnitude` enum(`major`, `moderate`, `subtle`) — the
+  detection-floor axis, kept on every row (`subtle` when `changed=false`) ·
+  `confidence` 0–1 (anchors: ≥0.90 unambiguous, 0.60–0.89 probable, 0.40–0.59
+  plausible, <0.40 never `changed=true`) · `evidence` string (one sentence).
+  Schema is reconciled with `prompts/inspector.md` — that file is authoritative.
+- **Code backstops** (prompt rules also enforced in `inspector.py`):
+  `confidence < 0.40` coerces `changed=false, category=no_change` before the
+  row is written; `{OLD_DATE}`/`{NEW_DATE}` are substituted with real capture
+  dates from the pair before the call.
 - `--image-size 2048` sends higher-resolution thumbnails for surface-focused
   runs (~2–3× the token cost, still cents at demo scale); default 1024.
 - Retries with backoff on 429/5xx (3 attempts); a failing pair is marked
@@ -153,8 +160,9 @@ UI (vanilla JS + MapLibre GL from CDN):
 - Markers colored by category (construction orange, demolition red, storefront
   purple, signage blue, road slate, surface rose, furniture cyan, vegetation
   green, other gray) + a **magnitude filter (Major / Moderate / Subtle chips)**
-  — the "detection floor" demo beat — and a "show unchanged" toggle; map fits
-  to marker bounds on load.
+  — the "detection floor" demo beat. Loads with Major + Moderate active and
+  Subtle OFF (opt-in chip) — plus a "show unchanged" toggle; map fits to
+  marker bounds on load.
 - Click → side panel: before/after slider (two stacked `<img>` + range input
   driving a clip), capture dates, category chip, magnitude tag, confidence bar,
   evidence.

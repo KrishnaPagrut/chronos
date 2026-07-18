@@ -40,15 +40,17 @@ CREATE TABLE IF NOT EXISTS pairs (
 );
 
 CREATE TABLE IF NOT EXISTS judgments (
-    pair_id     TEXT PRIMARY KEY REFERENCES pairs(id),
-    model       TEXT NOT NULL,
-    changed     INTEGER NOT NULL,
-    category    TEXT,
-    magnitude   TEXT,                      -- major|moderate|subtle
-    confidence  REAL,
-    evidence    TEXT,
-    raw_json    TEXT,
-    created_at  INTEGER
+    pair_id          TEXT PRIMARY KEY REFERENCES pairs(id),
+    model            TEXT NOT NULL,
+    old_description  TEXT,                 -- model's read of the older image
+    new_description  TEXT,                 -- model's read of the newer image
+    changed          INTEGER NOT NULL,
+    category         TEXT,
+    magnitude        TEXT,                 -- major|moderate|subtle (always kept)
+    confidence       REAL,
+    evidence         TEXT,
+    raw_json         TEXT,
+    created_at       INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS api_cache (
@@ -79,9 +81,18 @@ def init_db(db_path: str | Path | None = None) -> None:
     conn = connect(db_path)
     try:
         conn.executescript(SCHEMA)
+        _migrate(conn)
         conn.commit()
     finally:
         conn.close()
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Add columns introduced after a table already exists (idempotent)."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(judgments)")}
+    for col in ("old_description", "new_description"):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE judgments ADD COLUMN {col} TEXT")
 
 
 def _now_ms() -> int:
@@ -185,6 +196,73 @@ def insert_pair(conn: sqlite3.Connection, pair: pairing.Pair) -> bool:
         ),
     )
     return cur.rowcount > 0
+
+
+def pairs_to_judge(
+    conn: sqlite3.Connection, *, limit: int, retry_errors: bool = False
+) -> list[sqlite3.Row]:
+    """Unjudged pairs joined with both images' dates and thumbnails.
+
+    Best-aligned pairs first (lowest score) so a capped run spends its budget
+    on the pairs most likely to be genuinely comparable.
+    """
+    statuses = ("candidate", "error") if retry_errors else ("candidate",)
+    marks = ",".join("?" * len(statuses))
+    return conn.execute(
+        f"""
+        SELECT p.id, p.older_id, p.newer_id,
+               io.captured_at AS older_captured_at,
+               inw.captured_at AS newer_captured_at,
+               io.thumb_path  AS older_thumb,
+               inw.thumb_path AS newer_thumb
+        FROM pairs p
+        JOIN images io  ON io.id  = p.older_id
+        JOIN images inw ON inw.id = p.newer_id
+        WHERE p.status IN ({marks})
+        ORDER BY p.score ASC
+        LIMIT ?
+        """,
+        (*statuses, limit),
+    ).fetchall()
+
+
+def insert_judgment(
+    conn: sqlite3.Connection,
+    *,
+    pair_id: str,
+    model: str,
+    old_description: str,
+    new_description: str,
+    changed: bool,
+    category: str,
+    magnitude: str,
+    confidence: float,
+    evidence: str,
+    raw_json: str,
+) -> None:
+    """Store (or replace, for --retry-errors) a judgment for a pair."""
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO judgments
+            (pair_id, model, old_description, new_description, changed,
+             category, magnitude, confidence, evidence, raw_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            pair_id, model, old_description, new_description,
+            1 if changed else 0, category, magnitude, confidence,
+            evidence, raw_json, _now_ms(),
+        ),
+    )
+
+
+def set_pair_status(
+    conn: sqlite3.Connection, pair_id: str, status: str, error: str | None = None
+) -> None:
+    conn.execute(
+        "UPDATE pairs SET status = ?, error = ? WHERE id = ?",
+        (status, error, pair_id),
+    )
 
 
 # --- counts ------------------------------------------------------------------
