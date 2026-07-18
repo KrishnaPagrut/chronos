@@ -1,0 +1,30 @@
+"""Environment, filesystem paths, and shared configuration.
+
+Everything that reads the outside world (``.env``, disk paths) lives here so the
+rest of the package can import a single, side-effect-light module. Note that
+``pairing`` deliberately does *not* import this — it stays pure and dependency-free.
+"""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+ROOT = Path(__file__).resolve().parent.parent
+DATA_DIR = ROOT / "data"
+IMAGES_DIR = DATA_DIR / "images"
+DB_PATH = DATA_DIR / "chronos.db"
+PROMPTS_DIR = ROOT / "prompts"
+
+# Load .env from the repo root if present; real env vars still win.
+load_dotenv(ROOT / ".env")
+
+MAPILLARY_TOKEN = os.getenv("MAPILLARY_TOKEN", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
+
+
+def ensure_dirs() -> None:
+    """Create the runtime data directories (idempotent)."""
+    IMAGES_DIR.mkdir(parents=True, exist_ok=True)
