@@ -42,6 +42,31 @@ serve  ──► FastAPI + MapLibre map ──► before/after explorer
 Everything is idempotent: images, pairs, judgments, and raw API responses live
 in SQLite, and no pair is ever re-fetched or re-judged.
 
+## Built with AI
+
+I built Chronos in close partnership with Codex, and I want to be upfront about
+that. The architecture decisions were mine and Codex helped me move fast on the
+implementation. I chose to keep the pairing logic pure and unit tested, to make
+every stage idempotent so nothing is ever re-fetched or re-judged, to put the
+low-confidence backstop in code instead of trusting the prompt, and to validate
+the model output on the server before anything reaches the browser. Codex turned
+those calls into working code quickly, from the FastAPI layer to the MapLibre
+and mapillary-js frontend to the strict output schemas.
+
+The clearest example was the hardest problem in the project. Mapillary's API
+returns an error on dense city areas because the region holds too much data to
+serve in one request. I diagnosed that the bounding box itself was the problem
+and decided to split it recursively into smaller tiles, fetch each one, and then
+stitch the results back together, deduplicating images and pairing across the
+tile seams so the cuts I made for the network stay invisible to the geometry. Codex
+helped me implement that recursive subdivision and reassembly fast, but the
+decision of what to cut and how to stitch it back was the part that had to be
+right, and that was mine.
+
+The takeaway for me was that working with Codex well is a decision-making skill and
+not a delegation trick. The quality of the output tracked directly with the
+constraints and judgment I brought to it.
+
 ## Setup
 
 Requires Python 3.12 and two API keys:
@@ -80,9 +105,9 @@ thumbnails for surface-focused runs.
 The deployed explorer is deliberately read-only. It serves the curated
 `demo_data/` bundle (a SQLite snapshot plus only the thumbnails used by judged
 pairs), so it needs **no** Mapillary token, OpenAI key, ingestion, or judging at
-runtime. Live-data controls such as **Search this area**, Street View, and the
-paid GPT-5.6 brief are hidden on the deployment; the evidence map and
-before/after explorer remain fully interactive.
+runtime. Live-data controls such as **Search this area** and Street View are
+hidden on the deployment; the evidence map and before/after explorer remain
+fully interactive.
 
 Deploy with [Render](https://render.com) using the committed `render.yaml`:
 
@@ -117,10 +142,6 @@ server and can use the separate, gitignored `data/` directory.
   it runs detection on that viewport in two cost-safe steps: first it fetches
   imagery and finds candidate pairs (free), then shows how many pairs it found
   and the cost to judge them, spending OpenAI credits only when you confirm
-- **Area Brief** — click **Brief this area** to turn the judged changes in the
-  current viewport into a GPT-5.6, evidence-linked field brief. Each priority
-  finding opens its exact before/after pair; the model is constrained to the
-  stored judgments and states the imagery-coverage limitation
 - **Street View mode** — drag the pegman onto the map to drop into a navigable
   360° Mapillary panorama (via [mapillary-js](https://github.com/mapillary/mapillary-js)),
   with detected changes as clickable 3D markers and a "you are here" indicator
