@@ -30,6 +30,7 @@
     areaBusy: false,
     areaBbox: null,
     areaJudgeLimit: 0,
+    briefBusy: false,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -109,6 +110,7 @@
     buildMarkers();
     buildLegend();
     applyFilters();
+    $("briefAction").hidden = false;
 
     // Deep link: /?z=<zoom> and /?c=<lat>,<lon> pin an explicit map view;
     // otherwise fit to the markers.
@@ -249,6 +251,7 @@
     }
     state.selected = null;
     $("panelDetail").hidden = true;
+    $("panelBrief").hidden = true;
     $("panelEmpty").hidden = false;
   }
 
@@ -306,8 +309,66 @@
     $("pairId").textContent = "PAIR " + c.pair_id;
 
     $("panelEmpty").hidden = true;
+    $("panelBrief").hidden = true;
     $("panelDetail").hidden = false;
   }
+
+  /* ---------------- evidence-linked area brief ---------------- */
+  function showBrief(result) {
+    const brief = result.brief;
+    $("briefTitle").textContent = brief.title;
+    $("briefSummary").textContent = brief.summary;
+    $("briefCaveat").textContent = brief.coverage_caveat;
+    $("briefModel").textContent = "Generated with " + result.model +
+      " · every finding opens its source pair";
+    const findings = $("briefFindings");
+    findings.innerHTML = "";
+    for (const finding of brief.findings) {
+      const item = document.createElement("button");
+      item.className = "brief-finding";
+      item.type = "button";
+      item.innerHTML =
+        '<span class="brief-action-tag"></span><span class="brief-pair"></span>' +
+        '<span class="brief-rationale"></span>';
+      item.querySelector(".brief-action-tag").textContent = finding.action;
+      item.querySelector(".brief-pair").textContent = "PAIR " + finding.pair_id;
+      item.querySelector(".brief-rationale").textContent = finding.rationale;
+      item.addEventListener("click", () => select(finding.pair_id));
+      findings.appendChild(item);
+    }
+    if (state.selected) {
+      const selected = state.markers.get(state.selected);
+      if (selected) selected.el.classList.remove("selected");
+      state.selected = null;
+    }
+    $("panelEmpty").hidden = true;
+    $("panelDetail").hidden = true;
+    $("panelBrief").hidden = false;
+  }
+
+  async function generateBrief() {
+    if (!map || state.briefBusy) return;
+    state.briefBusy = true;
+    $("briefBtn").disabled = true;
+    $("briefLabel").textContent = "Writing brief…";
+    try {
+      const r = await fetch("/api/brief_area?" + bboxQuery(), { method: "POST" });
+      if (!r.ok) {
+        let detail = "Could not generate area brief.";
+        try { detail = (await r.json()).detail || detail; } catch (_) {}
+        throw new Error(detail);
+      }
+      showBrief(await r.json());
+    } catch (err) {
+      toast(err.message || "Could not generate area brief.");
+    } finally {
+      state.briefBusy = false;
+      $("briefBtn").disabled = false;
+      $("briefLabel").textContent = "Brief this area";
+    }
+  }
+  $("briefBtn").addEventListener("click", generateBrief);
+  $("briefClose").addEventListener("click", deselect);
 
   /* ---------------- before/after slider ---------------- */
   const slider = $("slider");
@@ -719,27 +780,42 @@
       return;
     }
     if (!data.image_id) {
-      showSvEmpty("No Mapillary imagery at this point — try dropping nearer a street.");
+      showSvEmpty(
+        data.reason === "no_panorama"
+          ? "No 360° Mapillary panorama nearby — try another street."
+          : "No Mapillary imagery at this point — try dropping nearer a street."
+      );
       return;
     }
     $("svEmpty").hidden = true;
     if (data.date) $("svDate").textContent = data.date;
 
-    if (!sv.viewer) initViewer(data.image_id);
-    else sv.viewer.moveTo(data.image_id).catch(() => {});
+    try {
+      if (!sv.viewer) await initViewer(data.image_id);
+      else await sv.viewer.moveTo(data.image_id);
+    } catch (_) {
+      if (sv.viewer) { sv.viewer.remove(); sv.viewer = null; }
+      showSvEmpty("Could not load this 360° panorama — try another street.");
+    }
   }
 
-  function initViewer(imageId) {
+  async function initViewer(imageId) {
     sv.viewer = new mapillary.Viewer({
       accessToken: sv.token,
       container: "mly",
-      imageId: imageId,
+      // Create unbound, then move to a panorama below. This leaves retries and
+      // later drops free to select another panorama if the first one fails.
+      cameraControls: mapillary.CameraControls.Street,
       component: { cover: false, marker: true },
     });
     sv.viewer.on("image", onViewerImage);
     sv.viewer.on("bearing", onViewerBearing);
     sv.viewer.on("click", onViewerClick);
     addChangeMarkersToViewer();
+    // Restrict the navigation graph to 360° captures. Without this filter,
+    // following a link can switch the viewer back to a fixed-FOV photo.
+    await sv.viewer.setFilter(["==", "cameraType", "spherical"]);
+    await sv.viewer.moveTo(imageId);
   }
 
   /* Float every detected change as an interactive 3D marker in the scene. */

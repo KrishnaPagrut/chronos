@@ -23,6 +23,7 @@ load_dotenv(ROOT / ".env")
 MAPILLARY_TOKEN = os.getenv("MAPILLARY_TOKEN", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
+BRIEF_MODEL = os.getenv("BRIEF_MODEL", "gpt-5.6-terra")
 
 
 def ensure_dirs() -> None:

@@ -42,6 +42,13 @@
         </button>
       </div>
 
+      <div class="brief-action" id="briefAction" hidden>
+        <button class="brief-btn" id="briefBtn">
+          <span aria-hidden="true">✦</span>
+          <span id="briefLabel">Brief this area</span>
+        </button>
+      </div>
+
       <div class="filters" role="group" aria-label="Magnitude filter">
         <span class="filters-k">Magnitude</span>
         <button class="mchip active" data-mag="major">Major</button>
@@ -70,7 +77,7 @@
           <span>Street View</span>
           <span class="sv-date" id="svDate">–</span>
         </span>
-        <span class="sv-hint" id="svHint">drag to look around · click a marker to inspect</span>
+        <span class="sv-hint" id="svHint">360° panorama · drag to look around · click a marker to inspect</span>
         <button class="sv-close" id="svClose" aria-label="Close Street View">✕</button>
       </div>
       <div class="sv-canvas" id="mly"></div>
@@ -135,6 +142,26 @@
         </dl>
 
         <div class="pairid" id="pairId">–</div>
+      </div>
+
+      <div class="panel-scroll" id="panelBrief" hidden>
+        <div class="brief-head">
+          <div>
+            <span class="eyebrow">GPT-5.6 AREA BRIEF</span>
+            <h1 id="briefTitle">–</h1>
+          </div>
+          <button class="brief-close" id="briefClose" aria-label="Close area brief">✕</button>
+        </div>
+        <p class="brief-summary" id="briefSummary">–</p>
+        <section class="brief-findings" aria-label="Evidence-linked findings">
+          <h2>Priority findings</h2>
+          <div id="briefFindings"></div>
+        </section>
+        <section class="brief-caveat">
+          <span class="eyebrow">Coverage note</span>
+          <p id="briefCaveat">–</p>
+        </section>
+        <p class="brief-model" id="briefModel">–</p>
       </div>
     </aside>
   </div>

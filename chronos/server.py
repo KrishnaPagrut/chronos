@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import threading
 import uuid
+import hashlib
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -30,6 +32,26 @@ app = FastAPI(title="Chronos", docs_url=None, redoc_url=None)
 
 def _iso_date(epoch_ms: int) -> str:
     return datetime.fromtimestamp(epoch_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+
+
+def _nearest_panorama(features, lat: float, lon: float):
+    """Return the closest 360° image, preferring the newer one on a tie.
+
+    Mapillary's ordinary images are perspective photos. They can only pan
+    inside the original camera frame, so they are unsuitable for the
+    Google-Street-View-like mode exposed by the pegman. This selector keeps
+    that mode on spherical imagery from the first frame onward.
+    """
+    panoramas = [feature for feature in features if feature.is_pano]
+    if not panoramas:
+        return None
+    return min(
+        panoramas,
+        key=lambda feature: (
+            (feature.lat - lat) ** 2 + (feature.lon - lon) ** 2,
+            -feature.captured_at,
+        ),
+    )
 
 
 _CHANGES_SELECT = """
@@ -90,33 +112,38 @@ def config_public() -> dict:
 
 @app.get("/api/nearest")
 def nearest(lat: float, lon: float) -> dict:
-    """Newest Mapillary image near a point — the entrypoint for Street View mode.
+    """Nearest 360° Mapillary panorama — the Street View entrypoint.
 
-    Live-queries a small bbox around the drop point (cached in api_cache), then
-    returns the most recently captured image so the pegman lands on current
-    imagery.
+    Ordinary Mapillary photos have a fixed camera frame, which makes their
+    field of view feel restricted when dragged. The Street View pane therefore
+    starts only on spherical images. Search a wider radius than the pairing
+    flow so a panorama can be found when the drop is between capture points.
     """
     from . import mapillary
 
     if not config.MAPILLARY_TOKEN:
         raise HTTPException(status_code=503, detail="MAPILLARY_TOKEN not set")
 
-    d = 0.00045  # ~50 m half-box at SF latitudes
+    d = 0.0018  # ~200 m half-box at SF latitudes; panorama coverage is sparser
     conn = db.connect()
     try:
         with mapillary.MapillaryClient(conn, config.MAPILLARY_TOKEN) as client:
-            feats = client.fetch_bbox(lon - d, lat - d, lon + d, lat + d, limit=60)
+            feats = client.fetch_bbox(
+                lon - d, lat - d, lon + d, lat + d,
+                limit=300, time_budget_s=8.0,
+            )
     finally:
         conn.close()
-    if not feats:
-        return {"image_id": None}
-    newest = max(feats, key=lambda f: f.captured_at)
+    panorama = _nearest_panorama(feats, lat, lon)
+    if panorama is None:
+        return {"image_id": None, "reason": "no_panorama"}
     return {
-        "image_id": newest.id,
-        "lat": newest.lat,
-        "lon": newest.lon,
-        "date": _iso_date(newest.captured_at),
+        "image_id": panorama.id,
+        "lat": panorama.lat,
+        "lon": panorama.lon,
+        "date": _iso_date(panorama.captured_at),
         "coverage": len(feats),
+        "panorama_coverage": sum(feature.is_pano for feature in feats),
     }
 
 
@@ -180,6 +207,31 @@ def _changes_for_pairs(conn, pair_ids: list[str]) -> list[dict]:
         _CHANGES_SELECT + f" WHERE p.id IN ({marks})", pair_ids
     ).fetchall()
     return [_row_to_change(r) for r in rows]
+
+
+def _brief_records(conn, bbox) -> list[dict]:
+    """Evidence-bearing change records in one viewport, highest confidence first."""
+    w, s, e, n = bbox
+    rows = conn.execute(
+        _CHANGES_SELECT + " WHERE j.changed = 1 AND " + _BBOX_FILTER +
+        " ORDER BY j.confidence DESC LIMIT 30",
+        (s, n, w, e),
+    ).fetchall()
+    records = []
+    for row in rows:
+        change = _row_to_change(row)
+        records.append({
+            "pair_id": change["pair_id"],
+            "category": change["category"],
+            "magnitude": change["magnitude"],
+            "confidence": change["confidence"],
+            "evidence": change["evidence"],
+            "old_description": change["old_description"],
+            "new_description": change["new_description"],
+            "older_date": change["older"]["date"],
+            "newer_date": change["newer"]["date"],
+        })
+    return records
 
 
 def _ensure_thumb(conn, mly_client, image_id: str, url: str | None) -> str | None:
@@ -337,6 +389,47 @@ def judge_area(
         target=_run_judge, args=(job_id, (west, south, east, north), limit), daemon=True
     ).start()
     return {"job_id": job_id}
+
+
+@app.post("/api/brief_area")
+def brief_area(west: float, south: float, east: float, north: float) -> dict:
+    """Generate a cached, evidence-linked GPT-5.6 brief for a map viewport."""
+    from . import briefing
+
+    if not config.OPENAI_API_KEY:
+        raise HTTPException(status_code=503, detail="OPENAI_API_KEY not set")
+    _validate_bbox(west, south, east, north)
+    bbox = (west, south, east, north)
+    conn = db.connect()
+    try:
+        records = _brief_records(conn, bbox)
+        if not records:
+            raise HTTPException(status_code=404, detail="No judged changes in this area yet.")
+        cache_material = json.dumps(
+            {"model": config.BRIEF_MODEL, "records": records}, sort_keys=True,
+            separators=(",", ":"),
+        )
+        cache_key = "brief " + hashlib.sha256(cache_material.encode()).hexdigest()
+        cached = db.cache_get(conn, cache_key)
+        if cached is not None:
+            return json.loads(cached)
+
+        payload = briefing.build_payload(records)
+        with briefing.httpx.Client(
+            headers={"Authorization": f"Bearer {config.OPENAI_API_KEY}"}, timeout=120.0
+        ) as client:
+            brief, _ = briefing.request_brief(client, payload)
+        briefing.validate_evidence(brief, {record["pair_id"] for record in records})
+        result = {"brief": brief.model_dump(), "model": config.BRIEF_MODEL, "cached": False}
+        db.cache_put(conn, cache_key, json.dumps(result))
+        conn.commit()
+        return result
+    except HTTPException:
+        raise
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    finally:
+        conn.close()
 
 
 @app.get("/api/job/{job_id}")

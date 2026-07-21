@@ -89,10 +89,15 @@ thumbnails for surface-focused runs.
   it runs detection on that viewport in two cost-safe steps: first it fetches
   imagery and finds candidate pairs (free), then shows how many pairs it found
   and the cost to judge them, spending OpenAI credits only when you confirm
-- **Street View mode** — drag the pegman onto the map to drop into navigable
-  Mapillary imagery (via [mapillary-js](https://github.com/mapillary/mapillary-js)),
+- **Area Brief** — click **Brief this area** to turn the judged changes in the
+  current viewport into a GPT-5.6, evidence-linked field brief. Each priority
+  finding opens its exact before/after pair; the model is constrained to the
+  stored judgments and states the imagery-coverage limitation
+- **Street View mode** — drag the pegman onto the map to drop into a navigable
+  360° Mapillary panorama (via [mapillary-js](https://github.com/mapillary/mapillary-js)),
   with detected changes as clickable 3D markers and a "you are here" indicator
-  synced back to the map
+  synced back to the map. Areas without nearby panoramas show an explicit
+  availability message rather than a fixed-field-of-view photo.
 - Drag the dividers between the map, Street View, and detail panes to resize
   them; click the ⤢ button on any before/after to open it fullscreen
 - Deep links: `/?pair=<pair_id>` preselects a marker, `/?sv=<lat>,<lon>` opens
