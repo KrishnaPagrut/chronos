@@ -85,6 +85,10 @@ thumbnails for surface-focused runs.
 - Click a marker: before/after wipe slider, capture dates, the model's
   description of each image, its evidence sentence, and pair geometry
 - Light and dark themes (follows the system, toggle in the header)
+- **Search this area** — pan or zoom to a new neighborhood and a button appears;
+  it runs detection on that viewport in two cost-safe steps: first it fetches
+  imagery and finds candidate pairs (free), then shows how many pairs it found
+  and the cost to judge them, spending OpenAI credits only when you confirm
 - **Street View mode** — drag the pegman onto the map to drop into navigable
   Mapillary imagery (via [mapillary-js](https://github.com/mapillary/mapillary-js)),
   with detected changes as clickable 3D markers and a "you are here" indicator

@@ -159,6 +159,41 @@ body {
 }
 .maplibregl-ctrl-attrib a { color: var(--ink-2); }
 
+/* ---------- search this area ---------- */
+.area-search {
+  position: absolute;
+  top: 12px; left: 50%;
+  transform: translateX(-50%);
+  z-index: 22;
+}
+.area-search[hidden] { display: none; }
+.area-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 7px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  font-family: var(--font-ui);
+  font-size: 13px; font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.area-btn:hover:not([disabled]) { border-color: var(--accent); }
+.area-btn[disabled] { cursor: default; }
+.area-btn[data-state="found"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.area-ico { font-size: 14px; line-height: 1; }
+.area-btn.spinning .area-ico {
+  display: inline-block;
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
 /* ---------- magnitude filter ---------- */
 .filters {
   position: absolute;

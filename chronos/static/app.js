@@ -25,6 +25,11 @@
     categoriesOff: new Set(),
     showUnchanged: false,
     selected: null,
+    // "search this area" flow
+    searchReady: false,
+    areaBusy: false,
+    areaBbox: null,
+    areaJudgeLimit: 0,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -72,6 +77,10 @@
     });
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
     map.on("click", deselect);
+    // Offer to run detection on a new area once the user pans/zooms.
+    map.on("moveend", () => {
+      if (state.searchReady && !state.areaBusy) showAreaIdle();
+    });
   } catch (err) {
     const ribbon = $("ribbon");
     ribbon.innerHTML = "<b>Map unavailable</b> — " + err.message;
@@ -123,6 +132,10 @@
       select(pairId);
       if (params.get("expand")) openLightbox();
     }
+
+    // Enable "search this area" only after the initial view settles, so the
+    // opening fit-to-markers move doesn't pop the button up immediately.
+    setTimeout(() => { state.searchReady = true; }, 1200);
   }
 
   function addMarker(change) {
@@ -387,6 +400,208 @@
     if (e.key === "Escape" && !$("lightbox").hidden) closeLightbox();
   });
 
+  /* ================= "Search this area" (two-step: find, then judge) ========= */
+
+  function setArea(stateName, label, opts) {
+    opts = opts || {};
+    const btn = $("areaBtn");
+    btn.dataset.state = stateName;
+    $("areaLabel").textContent = label;
+    btn.disabled = !!opts.disabled;
+    btn.classList.toggle("spinning", !!opts.spinning);
+    $("areaIco").textContent = opts.spinning
+      ? "↻"
+      : stateName === "found"
+      ? "⚖"
+      : "⌕";
+    $("areaSearch").hidden = false;
+  }
+  function showAreaIdle() {
+    setArea("idle", "Search this area", {});
+  }
+  function hideArea() {
+    $("areaSearch").hidden = true;
+  }
+
+  async function postJob(path, query) {
+    const r = await fetch(path + "?" + query, { method: "POST" });
+    if (!r.ok) {
+      let detail = "request failed";
+      try { detail = (await r.json()).detail || detail; } catch (_) {}
+      throw new Error(detail);
+    }
+    return r.json();
+  }
+  function pollJob(jobId, onProgress) {
+    return new Promise((resolve, reject) => {
+      const tick = async () => {
+        let j;
+        try {
+          j = await fetch("/api/job/" + jobId).then((r) => r.json());
+        } catch (err) {
+          return reject(err);
+        }
+        if (j.status === "done") return resolve(j.result);
+        if (j.status === "error") return reject(new Error(j.error || "job failed"));
+        if (onProgress) onProgress(j);
+        setTimeout(tick, 900);
+      };
+      tick();
+    });
+  }
+  function bboxQuery() {
+    const b = map.getBounds();
+    state.areaBbox = {
+      west: b.getWest(), south: b.getSouth(),
+      east: b.getEast(), north: b.getNorth(),
+    };
+    return (
+      "west=" + state.areaBbox.west + "&south=" + state.areaBbox.south +
+      "&east=" + state.areaBbox.east + "&north=" + state.areaBbox.north
+    );
+  }
+
+  async function startSearch() {
+    state.areaBusy = true;
+    setArea("searching", "Fetching imagery…", { spinning: true, disabled: true });
+    try {
+      const { job_id } = await postJob("/api/search_area", bboxQuery());
+      const res = await pollJob(job_id, (j) =>
+        setArea("searching", (j.phase || "working") + "…", { spinning: true, disabled: true })
+      );
+      state.areaBusy = false;
+      if (!res.candidates) {
+        setArea("idle", "No new pairs found here", {});
+        setTimeout(() => { if (!state.areaBusy) hideArea(); }, 2200);
+        return;
+      }
+      state.areaJudgeLimit = res.judge_limit;
+      setArea(
+        "found",
+        "Judge " + res.judge_limit + " · ~$" + res.est_cost.toFixed(2),
+        {}
+      );
+    } catch (err) {
+      state.areaBusy = false;
+      setArea("idle", err.message || "Search failed", {});
+      setTimeout(() => { if (!state.areaBusy) showAreaIdle(); }, 2600);
+    }
+  }
+
+  async function startJudge() {
+    if (!state.areaBbox) return;
+    state.areaBusy = true;
+    setArea("judging", "Judging…", { spinning: true, disabled: true });
+    try {
+      const q = bboxFromState() + "&limit=" + state.areaJudgeLimit;
+      const { job_id } = await postJob("/api/judge_area", q);
+      const res = await pollJob(job_id, (j) =>
+        setArea(
+          "judging",
+          j.total ? "Judging " + j.done + "/" + j.total + "…" : "Judging…",
+          { spinning: true, disabled: true }
+        )
+      );
+      state.areaBusy = false;
+      const changes = res.changes || [];
+      addChanges(changes);
+      await refreshStats();
+
+      const changed = changes.filter((c) => c.changed);
+      if (!changed.length) {
+        // Judging costs money regardless of the verdict; be explicit when an
+        // area turned out to have no durable changes.
+        toast(
+          changes.length
+            ? "Judged " + changes.length + " pair" + (changes.length === 1 ? "" : "s") +
+              " — no durable changes found in this area."
+            : "Nothing to judge here."
+        );
+        showAreaIdle();
+        setTimeout(() => { if (!state.areaBusy) hideArea(); }, 2600);
+        return;
+      }
+      // Make sure the new markers are actually visible: turn on any magnitude
+      // chips they need (e.g. Subtle, which is off by default), then focus them.
+      const revealed = revealMagnitudes(changed);
+      applyFilters();
+      fitToChanges(changed);
+      const strongest = changed.slice().sort((a, b) => b.confidence - a.confidence)[0];
+      select(strongest.pair_id, { noMove: true });
+      toast(
+        "Found " + changed.length + " change" + (changed.length === 1 ? "" : "s") +
+        (revealed ? " (turned on hidden magnitudes to show them)" : "") + "."
+      );
+    } catch (err) {
+      state.areaBusy = false;
+      setArea("found", err.message || "Judge failed — retry", {});
+    }
+  }
+
+  function revealMagnitudes(changes) {
+    const mags = new Set(changes.map((c) => c.magnitude));
+    let changedUI = false;
+    for (const btn of document.querySelectorAll(".mchip")) {
+      const m = btn.dataset.mag;
+      if (mags.has(m) && !state.magnitudes.has(m)) {
+        state.magnitudes.add(m);
+        btn.classList.add("active");
+        changedUI = true;
+      }
+    }
+    return changedUI;
+  }
+
+  function fitToChanges(changes) {
+    if (!map || !changes.length) return;
+    const b = new maplibregl.LngLatBounds();
+    for (const c of changes) b.extend([c.lon, c.lat]);
+    map.fitBounds(b, { padding: 100, maxZoom: 18, duration: 700 });
+  }
+
+  function toast(msg, ms) {
+    const r = $("ribbon");
+    r.innerHTML = msg;
+    r.hidden = false;
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => { r.hidden = true; }, ms || 4500);
+  }
+
+  // Rebuild the query from the stored bbox (map may have moved during judging).
+  function bboxFromState() {
+    const b = state.areaBbox;
+    return "west=" + b.west + "&south=" + b.south + "&east=" + b.east + "&north=" + b.north;
+  }
+
+  function addChanges(changes) {
+    let added = 0;
+    for (const c of changes) {
+      if (state.markers.has(c.pair_id)) continue;
+      state.changes.push(c);
+      addMarker(c);
+      added++;
+    }
+    if (added) {
+      buildLegend();
+      applyFilters();
+    }
+  }
+
+  async function refreshStats() {
+    try {
+      const s = await fetch("/api/stats").then((r) => r.json());
+      $("statImages").textContent = s.images;
+      $("statPairs").textContent = s.pairs;
+      $("statJudged").textContent = s.judged;
+      $("statChanged").textContent = s.changed;
+    } catch (_) {}
+  }
+
+  $("areaBtn").addEventListener("click", () => {
+    const st = $("areaBtn").dataset.state;
+    if (st === "found") startJudge();
+    else if (!state.areaBusy) startSearch();
+  });
 
   /* ================= Street View mode (pegman + mapillary-js) ================= */
 
