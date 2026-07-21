@@ -167,6 +167,7 @@ body {
   z-index: 22;
 }
 .area-search[hidden] { display: none; }
+.demo-mode .area-search, .demo-mode .brief-action { display: none !important; }
 .area-btn {
   display: inline-flex; align-items: center; gap: 8px;
   padding: 7px 16px;

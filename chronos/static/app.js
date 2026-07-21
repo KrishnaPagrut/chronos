@@ -686,6 +686,13 @@
     } catch (_) {
       /* leave pegman hidden below */
     }
+    if (cfg.demo_mode) {
+      // The deployed explorer is intentionally data-only: no live Mapillary
+      // lookup, no new judging, and no paid area briefs.
+      document.body.classList.add("demo-mode");
+      $("pegman").style.display = "none";
+      return;
+    }
     // Needs a token, the mapillary-js library, and a working WebGL map.
     if (!cfg.has_token || !window.mapillary || !map) {
       $("pegman").style.display = "none";

@@ -75,6 +75,34 @@ The ingest summary prints how many pairs a bbox produced *before* you spend
 anything on judging. `inspect --image-size 2048` sends higher-resolution
 thumbnails for surface-focused runs.
 
+## Live demo
+
+The deployed explorer is deliberately read-only. It serves the curated
+`demo_data/` bundle (a SQLite snapshot plus only the thumbnails used by judged
+pairs), so it needs **no** Mapillary token, OpenAI key, ingestion, or judging at
+runtime. Live-data controls such as **Search this area**, Street View, and the
+paid GPT-5.6 brief are hidden on the deployment; the evidence map and
+before/after explorer remain fully interactive.
+
+Deploy with [Render](https://render.com) using the committed `render.yaml`:
+
+1. Push this repository, including `demo_data/`, to GitHub.
+2. In Render, choose **New → Blueprint**, connect the repository, and approve
+   the `chronos-explorer` service described by `render.yaml`.
+3. Click **Apply**. Do not add any environment secrets. Render installs the
+   pinned requirements and starts `chronos.demo_server` on its provided `PORT`.
+4. Open the generated `https://chronos-explorer.onrender.com` URL and verify a
+   marker opens its local before/after photos.
+
+To run the exact production explorer locally without any secrets:
+
+```bash
+CHRONOS_DEMO_ONLY=1 uvicorn chronos.demo_server:app --host 127.0.0.1 --port 8000
+```
+
+The normal `python -m chronos serve` command remains the local development
+server and can use the separate, gitignored `data/` directory.
+
 ## UI
 
 - Markers colored by change category (palette validated for color-vision

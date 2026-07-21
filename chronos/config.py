@@ -12,16 +12,21 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = ROOT / "data"
+DEMO_MODE = os.getenv("CHRONOS_DEMO_ONLY", "").lower() in {"1", "true", "yes"}
+# Local pipeline state stays ignored in ``data/``. The production explorer uses
+# the deliberately curated, committed ``demo_data/`` bundle instead.
+DATA_DIR = ROOT / ("demo_data" if DEMO_MODE else "data")
 IMAGES_DIR = DATA_DIR / "images"
 DB_PATH = DATA_DIR / "chronos.db"
 PROMPTS_DIR = ROOT / "prompts"
 
-# Load .env from the repo root if present; real env vars still win.
-load_dotenv(ROOT / ".env")
+# Load local credentials only for the pipeline/development server. The deployed
+# explorer must neither read nor expose them, even if a developer has a .env.
+if not DEMO_MODE:
+    load_dotenv(ROOT / ".env")
 
-MAPILLARY_TOKEN = os.getenv("MAPILLARY_TOKEN", "")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+MAPILLARY_TOKEN = "" if DEMO_MODE else os.getenv("MAPILLARY_TOKEN", "")
+OPENAI_API_KEY = "" if DEMO_MODE else os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
 BRIEF_MODEL = os.getenv("BRIEF_MODEL", "gpt-5.6-terra")
 
