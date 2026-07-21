@@ -286,9 +286,201 @@
     setSlider(50);
   }
 
+  /* ================= Street View mode (pegman + mapillary-js) ================= */
+
+  const sv = { token: null, viewer: null, here: null, hereEl: null, markersAdded: false };
+
+  /* Resolve a category's CSS color to a concrete hex for the 3D viewer markers. */
+  function catColor(cat) {
+    const v = getComputedStyle(document.documentElement)
+      .getPropertyValue("--c-" + cat)
+      .trim();
+    return v || "#888888";
+  }
+  function fmtDate(ms) {
+    return new Date(ms).toISOString().slice(0, 10);
+  }
+
+  async function initStreetView() {
+    let cfg = {};
+    try {
+      cfg = await fetch("/api/config").then((r) => r.json());
+    } catch (_) {
+      /* leave pegman hidden below */
+    }
+    // Needs a token, the mapillary-js library, and a working WebGL map.
+    if (!cfg.has_token || !window.mapillary || !map) {
+      $("pegman").style.display = "none";
+      return;
+    }
+    sv.token = cfg.mapillary_token;
+    setupPegman();
+    $("svClose").addEventListener("click", closeStreetView);
+
+    // Deep link: /?sv=<lat>,<lon> opens Street View at that point on load.
+    const svParam = new URLSearchParams(location.search).get("sv");
+    if (svParam) {
+      const [lat, lon] = svParam.split(",").map(Number);
+      if (isFinite(lat) && isFinite(lon)) enterStreetView(lat, lon);
+    }
+  }
+
+  /* ---------------- pegman drag ---------------- */
+  function setupPegman() {
+    const pegman = $("pegman");
+    const mapWrap = document.querySelector(".map-wrap");
+    let ghost = null;
+
+    function moveGhost(e) {
+      ghost.style.left = e.clientX + "px";
+      ghost.style.top = e.clientY + "px";
+    }
+    function onDown(e) {
+      e.preventDefault();
+      pegman.classList.add("dragging");
+      mapWrap.classList.add("drop-armed");
+      ghost = document.createElement("div");
+      ghost.className = "pegman-ghost";
+      ghost.textContent = "🧍";
+      document.body.appendChild(ghost);
+      moveGhost(e);
+      window.addEventListener("pointermove", moveGhost);
+      window.addEventListener("pointerup", onUp, { once: true });
+    }
+    function onUp(e) {
+      window.removeEventListener("pointermove", moveGhost);
+      pegman.classList.remove("dragging");
+      mapWrap.classList.remove("drop-armed");
+      if (ghost) { ghost.remove(); ghost = null; }
+      const rect = $("map").getBoundingClientRect();
+      const inside =
+        e.clientX >= rect.left && e.clientX <= rect.right &&
+        e.clientY >= rect.top && e.clientY <= rect.bottom;
+      if (inside && map) {
+        const p = map.unproject([e.clientX - rect.left, e.clientY - rect.top]);
+        enterStreetView(p.lat, p.lng);
+      }
+    }
+    pegman.addEventListener("pointerdown", onDown);
+    pegman.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        const c = map.getCenter();
+        enterStreetView(c.lat, c.lng);
+      }
+    });
+  }
+
+  /* ---------------- viewer lifecycle ---------------- */
+  function showSvEmpty(msg) {
+    $("svEmpty").textContent = msg;
+    $("svEmpty").hidden = false;
+  }
+
+  async function enterStreetView(lat, lon) {
+    if (!sv.token) return;
+    document.querySelector(".shell").classList.add("sv-open");
+    $("streetview").hidden = false;
+    $("svEmpty").hidden = true;
+    $("svDate").textContent = "…";
+    if (map) setTimeout(() => map.resize(), 0);
+
+    let data;
+    try {
+      data = await fetch("/api/nearest?lat=" + lat + "&lon=" + lon).then((r) => r.json());
+    } catch (_) {
+      showSvEmpty("Could not reach Mapillary.");
+      return;
+    }
+    if (!data.image_id) {
+      showSvEmpty("No Mapillary imagery at this point — try dropping nearer a street.");
+      return;
+    }
+    $("svEmpty").hidden = true;
+    if (data.date) $("svDate").textContent = data.date;
+
+    if (!sv.viewer) initViewer(data.image_id);
+    else sv.viewer.moveTo(data.image_id).catch(() => {});
+  }
+
+  function initViewer(imageId) {
+    sv.viewer = new mapillary.Viewer({
+      accessToken: sv.token,
+      container: "mly",
+      imageId: imageId,
+      component: { cover: false, marker: true },
+    });
+    sv.viewer.on("image", onViewerImage);
+    sv.viewer.on("bearing", onViewerBearing);
+    sv.viewer.on("click", onViewerClick);
+    addChangeMarkersToViewer();
+  }
+
+  /* Float every detected change as an interactive 3D marker in the scene. */
+  function addChangeMarkersToViewer() {
+    if (sv.markersAdded || !sv.viewer) return;
+    const MarkerCls = mapillary.SimpleMarker || mapillary.CircleMarker;
+    if (!MarkerCls) return;
+    const mc = sv.viewer.getComponent("marker");
+    const markers = [];
+    for (const c of state.changes) {
+      if (!c.changed) continue;
+      markers.push(
+        new MarkerCls(c.pair_id, { lat: c.lat, lng: c.lon }, {
+          interactive: true,
+          color: catColor(c.category),   // balloon body = category color
+          ballColor: "#ffffff",          // white center reads cleanly at any hue
+          ballOpacity: 0.95,
+          opacity: 0.85,
+          radius: 0.6,
+        })
+      );
+    }
+    if (markers.length) mc.add(markers);
+    sv.markersAdded = true;
+  }
+
+  function onViewerImage(e) {
+    const img = e.image;
+    if (img.capturedAt) $("svDate").textContent = fmtDate(img.capturedAt);
+    if (img.lngLat) updateHere(img.lngLat.lat, img.lngLat.lng);
+  }
+  function onViewerBearing(e) {
+    if (sv.hereEl) sv.hereEl.style.setProperty("--bearing", e.bearing + "deg");
+  }
+  function onViewerClick(e) {
+    if (!sv.viewer) return;
+    const mc = sv.viewer.getComponent("marker");
+    Promise.resolve(mc.getMarkerIdAt(e.pixelPoint)).then((id) => {
+      if (id && state.markers.has(id)) select(id);
+    });
+  }
+
+  /* The "you are here" marker on the map, following the viewer's position. */
+  function updateHere(lat, lng) {
+    if (!map) return;
+    if (!sv.here) {
+      const el = document.createElement("div");
+      el.className = "here";
+      el.innerHTML = '<div class="fan"></div><div class="pin"></div>';
+      sv.hereEl = el;
+      sv.here = new maplibregl.Marker({ element: el }).setLngLat([lng, lat]).addTo(map);
+    } else {
+      sv.here.setLngLat([lng, lat]);
+    }
+  }
+
+  function closeStreetView() {
+    document.querySelector(".shell").classList.remove("sv-open");
+    $("streetview").hidden = true;
+    if (sv.here) { sv.here.remove(); sv.here = null; sv.hereEl = null; }
+    if (map) setTimeout(() => map.resize(), 0);
+  }
+
   loadData().catch((err) => {
     const ribbon = $("ribbon");
     ribbon.innerHTML = "<b>Failed to load data</b> — " + err.message;
     ribbon.hidden = false;
   });
+  initStreetView();
 })();

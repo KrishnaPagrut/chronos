@@ -6,6 +6,7 @@
   <title>Chronos — street-level change detection</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>◷</text></svg>">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="https://unpkg.com/mapillary-js@4.1.2/dist/mapillary.css">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -29,6 +30,11 @@
     <div class="map-wrap">
       <div id="map"></div>
 
+      <div class="pegman" id="pegman" title="Drag onto the map to enter Street View"
+           role="button" tabindex="0" aria-label="Street View pegman — drag onto the map">
+        <span class="pegman-icon" aria-hidden="true">🧍</span>
+      </div>
+
       <div class="filters" role="group" aria-label="Magnitude filter">
         <span class="filters-k">Magnitude</span>
         <button class="mchip active" data-mag="major">Major</button>
@@ -47,6 +53,20 @@
 
       <div class="ribbon" id="ribbon" hidden></div>
     </div>
+
+    <section class="streetview" id="streetview" hidden aria-label="Street View">
+      <div class="sv-bar">
+        <span class="sv-title">
+          <span class="sv-dot" aria-hidden="true"></span>
+          <span>Street View</span>
+          <span class="sv-date" id="svDate">–</span>
+        </span>
+        <span class="sv-hint" id="svHint">drag to look around · click a marker to inspect</span>
+        <button class="sv-close" id="svClose" aria-label="Close Street View">✕</button>
+      </div>
+      <div class="sv-canvas" id="mly"></div>
+      <div class="sv-empty" id="svEmpty" hidden>No Mapillary imagery at this point — try dropping nearer a street.</div>
+    </section>
 
     <aside class="panel" aria-label="Selected change details">
       <div class="panel-scroll" id="panelEmpty">
@@ -108,6 +128,7 @@
 </div>
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/mapillary-js@4.1.2/dist/mapillary.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

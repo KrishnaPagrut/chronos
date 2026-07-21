@@ -35,7 +35,9 @@ serve  ──► FastAPI + MapLibre map ──► before/after explorer
    confidence are coerced to `no_change` in code.
 3. **Serve** renders judged pairs on a MapLibre map — markers colored by
    category, magnitude filter chips, and a slider that wipes between the two
-   captures.
+   captures. Drag the **pegman** onto the map for a Street View mode: drop it
+   anywhere to walk through the latest Mapillary imagery, with the detected
+   changes floating as markers in the scene.
 
 Everything is idempotent: images, pairs, judgments, and raw API responses live
 in SQLite, and no pair is ever re-fetched or re-judged.
@@ -83,7 +85,19 @@ thumbnails for surface-focused runs.
 - Click a marker: before/after wipe slider, capture dates, the model's
   description of each image, its evidence sentence, and pair geometry
 - Light and dark themes (follows the system, toggle in the header)
-- Deep links: `/?pair=<pair_id>` preselects a marker
+- **Street View mode** — drag the pegman onto the map to drop into navigable
+  Mapillary imagery (via [mapillary-js](https://github.com/mapillary/mapillary-js)),
+  with detected changes as clickable 3D markers and a "you are here" indicator
+  synced back to the map
+- Deep links: `/?pair=<pair_id>` preselects a marker, `/?sv=<lat>,<lon>` opens
+  Street View at a point, `/?theme=dark` forces a theme
+
+![Street View mode](docs/screenshot-streetview.png)
+
+> **Note on the Mapillary token:** Street View runs the viewer in the browser,
+> so the server exposes the token via `/api/config`. Mapillary access tokens are
+> client-usable by design (like a Maps API key); for a public deployment, use a
+> token scoped to read-only.
 
 ## Project layout
 
@@ -96,7 +110,7 @@ chronos/
 │   ├── inspector.py    # vision judge: strict schema, retries, backstops
 │   ├── server.py       # FastAPI: JSON API + static UI
 │   ├── db.py           # SQLite schema and helpers
-│   └── static/         # vanilla JS + MapLibre GL (no build step)
+│   └── static/         # vanilla JS + MapLibre GL + mapillary-js (no build step)
 ├── prompts/inspector.md  # the judging prompt
 ├── tests/                # pairing + inspector tests
 └── data/                 # gitignored: SQLite DB + cached thumbnails

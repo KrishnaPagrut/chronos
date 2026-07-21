@@ -71,6 +71,45 @@ def changes(include_unchanged: bool = False) -> list[dict]:
     ]
 
 
+@app.get("/api/config")
+def config_public() -> dict:
+    """Client-side config. The Mapillary token is a client-usable access token
+    (like a Maps API key) — mapillary-js needs it in the browser to load tiles."""
+    return {"mapillary_token": config.MAPILLARY_TOKEN, "has_token": bool(config.MAPILLARY_TOKEN)}
+
+
+@app.get("/api/nearest")
+def nearest(lat: float, lon: float) -> dict:
+    """Newest Mapillary image near a point — the entrypoint for Street View mode.
+
+    Live-queries a small bbox around the drop point (cached in api_cache), then
+    returns the most recently captured image so the pegman lands on current
+    imagery.
+    """
+    from . import mapillary
+
+    if not config.MAPILLARY_TOKEN:
+        raise HTTPException(status_code=503, detail="MAPILLARY_TOKEN not set")
+
+    d = 0.00045  # ~50 m half-box at SF latitudes
+    conn = db.connect()
+    try:
+        with mapillary.MapillaryClient(conn, config.MAPILLARY_TOKEN) as client:
+            feats = client.fetch_bbox(lon - d, lat - d, lon + d, lat + d, limit=60)
+    finally:
+        conn.close()
+    if not feats:
+        return {"image_id": None}
+    newest = max(feats, key=lambda f: f.captured_at)
+    return {
+        "image_id": newest.id,
+        "lat": newest.lat,
+        "lon": newest.lon,
+        "date": _iso_date(newest.captured_at),
+        "coverage": len(feats),
+    }
+
+
 @app.get("/api/stats")
 def stats() -> dict:
     conn = db.connect()

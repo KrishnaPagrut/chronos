@@ -198,6 +198,125 @@ body {
 }
 .mchip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
+/* ---------- pegman ---------- */
+.pegman {
+  position: absolute;
+  top: 96px; right: 10px;
+  width: 34px; height: 34px;
+  border-radius: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  display: flex; align-items: center; justify-content: center;
+  cursor: grab;
+  z-index: 21;
+  touch-action: none;
+  user-select: none;
+}
+.pegman:hover { border-color: var(--accent); }
+.pegman:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pegman.dragging { cursor: grabbing; }
+.pegman-icon { font-size: 19px; line-height: 1; pointer-events: none; }
+.pegman-ghost {
+  position: fixed;
+  width: 34px; height: 34px;
+  margin: -30px 0 0 -17px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 26px;
+  pointer-events: none;
+  z-index: 60;
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.4));
+}
+/* whole map reads as a drop target while dragging the pegman */
+.map-wrap.drop-armed::after {
+  content: "";
+  position: absolute; inset: 0;
+  border: 2px dashed var(--accent);
+  background: var(--accent-soft);
+  pointer-events: none;
+  z-index: 15;
+}
+
+/* ---------- you-are-here (map) ---------- */
+.here {
+  width: 30px; height: 30px;
+  position: relative;
+}
+.here .fan {
+  position: absolute; left: 50%; top: 50%;
+  width: 0; height: 0;
+  border-left: 13px solid transparent;
+  border-right: 13px solid transparent;
+  border-bottom: 24px solid var(--accent-soft);
+  transform-origin: 50% 100%;
+  transform: translate(-50%, -100%) rotate(var(--bearing, 0deg));
+  filter: none;
+}
+.here .pin {
+  position: absolute; left: 50%; top: 50%;
+  width: 14px; height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2.5px solid #fff;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.4);
+}
+
+/* ---------- street-view pane ---------- */
+.streetview {
+  flex: 1 1 0;
+  min-width: 360px;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--line);
+  background: #0c0e12;
+  position: relative;
+  z-index: 24;
+}
+.streetview[hidden] { display: none; }
+.sv-bar {
+  flex: none;
+  height: 40px;
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 8px 0 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.sv-title { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 650; }
+.sv-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.sv-date {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.sv-hint { font-size: 11px; color: var(--ink-2); margin-left: auto; }
+.sv-close {
+  flex: none;
+  width: 26px; height: 26px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink-2);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+}
+.sv-close:hover { color: var(--ink); border-color: var(--ink-2); }
+.sv-canvas { flex: 1; min-height: 0; position: relative; }
+.sv-canvas .mapillary-viewer { background: #0c0e12; }
+.sv-empty {
+  position: absolute; inset: 40px 0 0 0;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+  text-align: center;
+  color: var(--ink-2);
+  font-size: 13px;
+  background: var(--panel-2);
+}
+.sv-empty[hidden] { display: none; }
+
 /* ---------- markers ---------- */
 .marker {
   width: 26px; height: 26px;
@@ -508,6 +627,11 @@ body {
 }
 
 /* ---------- responsive ---------- */
+/* medium screens: street view takes the map's place rather than a third column */
+@media (max-width: 1180px) {
+  .shell.sv-open .map-wrap { display: none; }
+  .streetview { border-left: none; }
+}
 @media (max-width: 760px) {
   .brand .tag { display: none; }
   .stats .stat:nth-child(-n+2) { display: none; }
@@ -518,6 +642,7 @@ body {
     border-top: 1px solid var(--line);
     max-height: 52vh;
   }
+  .streetview { border-left: none; border-top: 1px solid var(--line); min-height: 300px; }
   .ribbon { display: none; }
   .legend { bottom: auto; top: 56px; }
 }
