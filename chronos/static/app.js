@@ -100,10 +100,24 @@
     buildMarkers();
     buildLegend();
     applyFilters();
-    fitToMarkers();
+
+    // Deep link: /?z=<zoom> and /?c=<lat>,<lon> pin an explicit map view;
+    // otherwise fit to the markers.
+    const params = new URLSearchParams(location.search);
+    const z = params.get("z");
+    const c = params.get("c");
+    if ((z || c) && map) {
+      if (c) {
+        const [lat, lon] = c.split(",").map(Number);
+        if (isFinite(lat) && isFinite(lon)) map.setCenter([lon, lat]);
+      }
+      if (z && isFinite(Number(z))) map.setZoom(Number(z));
+    } else {
+      fitToMarkers();
+    }
 
     // Deep link: /?pair=<pair_id> preselects a marker (used in demos).
-    const pairId = new URLSearchParams(location.search).get("pair");
+    const pairId = params.get("pair");
     if (pairId && state.markers.has(pairId)) select(pairId);
   }
 

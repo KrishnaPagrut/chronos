@@ -90,7 +90,8 @@ thumbnails for surface-focused runs.
   with detected changes as clickable 3D markers and a "you are here" indicator
   synced back to the map
 - Deep links: `/?pair=<pair_id>` preselects a marker, `/?sv=<lat>,<lon>` opens
-  Street View at a point, `/?theme=dark` forces a theme
+  Street View at a point, `/?c=<lat>,<lon>&z=<zoom>` pins the map view, and
+  `/?theme=dark` forces a theme
 
 ![Street View mode](docs/screenshot-streetview.png)
 

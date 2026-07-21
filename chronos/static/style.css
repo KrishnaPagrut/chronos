@@ -324,7 +324,10 @@ body {
   background: transparent;
   padding: 0;
   cursor: pointer;
-  position: relative;
+  /* No `position` here: MapLibre sets `position: absolute` on its markers to
+     anchor them to a geo-point. Overriding it (this sheet loads after
+     maplibre-gl.css) puts the marker back in flow and makes it drift on zoom.
+     MapLibre's absolute also makes this the containing block for `.dot`. */
 }
 .marker .dot {
   position: absolute; inset: 6px;
