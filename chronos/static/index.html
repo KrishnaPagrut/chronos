@@ -54,6 +54,8 @@
       <div class="ribbon" id="ribbon" hidden></div>
     </div>
 
+    <div class="splitter" id="svSplitter" hidden role="separator" aria-label="Resize Street View" tabindex="0"></div>
+
     <section class="streetview" id="streetview" hidden aria-label="Street View">
       <div class="sv-bar">
         <span class="sv-title">
@@ -67,6 +69,8 @@
       <div class="sv-canvas" id="mly"></div>
       <div class="sv-empty" id="svEmpty" hidden>No Mapillary imagery at this point — try dropping nearer a street.</div>
     </section>
+
+    <div class="splitter" id="panelSplitter" role="separator" aria-label="Resize detail panel" tabindex="0"></div>
 
     <aside class="panel" aria-label="Selected change details">
       <div class="panel-scroll" id="panelEmpty">
@@ -101,6 +105,8 @@
                  aria-label="Before and after comparison slider">
           <div class="handle" id="handle"></div>
           <div class="grip" aria-hidden="true">⇔</div>
+          <button class="viewer-expand" id="viewerExpand" title="Expand images"
+                  aria-label="Expand images to fullscreen">⤢</button>
         </div>
 
         <blockquote class="evidence">
@@ -124,6 +130,27 @@
         <div class="pairid" id="pairId">–</div>
       </div>
     </aside>
+  </div>
+
+  <div class="lightbox" id="lightbox" hidden>
+    <div class="lb-backdrop" id="lbBackdrop"></div>
+    <div class="lb-stage">
+      <div class="lb-head">
+        <span class="lb-cat" id="lbCat">–</span>
+        <button class="lb-close" id="lbClose" aria-label="Close fullscreen">✕</button>
+      </div>
+      <div class="lb-viewer" id="lbViewer">
+        <img class="lb-img before" id="lbBefore" alt="Older capture">
+        <img class="lb-img after" id="lbAfter" alt="Newer capture">
+        <span class="datepill before"><b>BEFORE</b> <span id="lbDateBefore">–</span></span>
+        <span class="datepill after"><b>AFTER</b> <span id="lbDateAfter">–</span></span>
+        <input type="range" id="lbSlider" min="0" max="100" value="50" step="0.5"
+               aria-label="Before and after comparison slider">
+        <div class="handle" id="lbHandle"></div>
+        <div class="grip" aria-hidden="true">⇔</div>
+      </div>
+      <p class="lb-evidence" id="lbEvidence">–</p>
+    </div>
   </div>
 </div>
 

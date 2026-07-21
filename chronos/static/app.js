@@ -116,9 +116,13 @@
       fitToMarkers();
     }
 
-    // Deep link: /?pair=<pair_id> preselects a marker (used in demos).
+    // Deep link: /?pair=<pair_id> preselects a marker; add &expand=1 to open
+    // straight into the fullscreen before/after comparison (used in demos).
     const pairId = params.get("pair");
-    if (pairId && state.markers.has(pairId)) select(pairId);
+    if (pairId && state.markers.has(pairId)) {
+      select(pairId);
+      if (params.get("expand")) openLightbox();
+    }
   }
 
   function buildMarkers() {
@@ -300,6 +304,84 @@
     setSlider(50);
   }
 
+  /* ---------------- resizable panes ---------------- */
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const shell = () => document.querySelector(".shell");
+
+  let resizeRaf = 0;
+  function scheduleMapResize() {
+    if (!map || resizeRaf) return;
+    resizeRaf = requestAnimationFrame(() => {
+      resizeRaf = 0;
+      map.resize();
+    });
+  }
+
+  // ``compute`` returns the new pane width in px from the pointer event.
+  function makeResizer(splitter, cssVar, compute) {
+    if (!splitter) return;
+    function onMove(e) {
+      shell().style.setProperty(cssVar, Math.round(compute(e)) + "px");
+      scheduleMapResize();
+    }
+    function onUp() {
+      splitter.classList.remove("dragging");
+      window.removeEventListener("pointermove", onMove);
+      scheduleMapResize();
+    }
+    splitter.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      splitter.classList.add("dragging");
+      splitter.setPointerCapture(e.pointerId);
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp, { once: true });
+    });
+  }
+
+  // Panel is the rightmost pane: its width grows as the pointer moves left.
+  makeResizer($("panelSplitter"), "--panel-w", (e) => {
+    const r = shell().getBoundingClientRect();
+    return clamp(r.right - e.clientX, 300, r.width - 360);
+  });
+  // Street View sits between the map and the panel; its right edge is pinned by
+  // the panel, so width = (panel's left edge) - pointer.
+  makeResizer($("svSplitter"), "--sv-w", (e) => {
+    const r = shell().getBoundingClientRect();
+    const panelLeft = $("panelSplitter").getBoundingClientRect().left;
+    return clamp(panelLeft - e.clientX, 340, r.width - 420);
+  });
+
+  /* ---------------- lightbox (expand images) ---------------- */
+  function lbSet(pct) {
+    $("lbAfter").style.clipPath = "inset(0 0 0 " + pct + "%)";
+    $("lbHandle").style.left = pct + "%";
+    $("lbViewer").querySelector(".grip").style.left = pct + "%";
+  }
+  function openLightbox() {
+    if (!state.selected) return;
+    const c = state.markers.get(state.selected).change;
+    const label = c.changed ? CATEGORY_LABEL[c.category] || c.category : "no change";
+    $("lbCat").textContent = label + " · " + c.older.date + " → " + c.newer.date;
+    $("lbBefore").src = $("imgBefore").src;
+    $("lbAfter").src = $("imgAfter").src;
+    $("lbDateBefore").textContent = c.older.date;
+    $("lbDateAfter").textContent = c.newer.date;
+    $("lbEvidence").textContent = c.evidence;
+    $("lbSlider").value = 50;
+    lbSet(50);
+    $("lightbox").hidden = false;
+  }
+  function closeLightbox() {
+    $("lightbox").hidden = true;
+  }
+  $("viewerExpand").addEventListener("click", openLightbox);
+  $("lbSlider").addEventListener("input", () => lbSet($("lbSlider").value));
+  $("lbClose").addEventListener("click", closeLightbox);
+  $("lbBackdrop").addEventListener("click", closeLightbox);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !$("lightbox").hidden) closeLightbox();
+  });
+
   /* ================= Street View mode (pegman + mapillary-js) ================= */
 
   const sv = { token: null, viewer: null, here: null, hereEl: null, markersAdded: false };
@@ -393,8 +475,17 @@
 
   async function enterStreetView(lat, lon) {
     if (!sv.token) return;
-    document.querySelector(".shell").classList.add("sv-open");
+    const shellEl = document.querySelector(".shell");
+    shellEl.classList.add("sv-open");
     $("streetview").hidden = false;
+    $("svSplitter").hidden = false;
+    // Give the pane a sensible starting width the first time it opens.
+    if (!shellEl.style.getPropertyValue("--sv-w")) {
+      shellEl.style.setProperty(
+        "--sv-w",
+        Math.round(shellEl.getBoundingClientRect().width * 0.46) + "px"
+      );
+    }
     $("svEmpty").hidden = true;
     $("svDate").textContent = "…";
     if (map) setTimeout(() => map.resize(), 0);
@@ -487,6 +578,7 @@
   function closeStreetView() {
     document.querySelector(".shell").classList.remove("sv-open");
     $("streetview").hidden = true;
+    $("svSplitter").hidden = true;
     if (sv.here) { sv.here.remove(); sv.here = null; sv.hereEl = null; }
     if (map) setTimeout(() => map.resize(), 0);
   }

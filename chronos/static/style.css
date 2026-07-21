@@ -264,11 +264,11 @@ body {
 
 /* ---------- street-view pane ---------- */
 .streetview {
-  flex: 1 1 0;
-  min-width: 360px;
+  flex: none;
+  width: var(--sv-w, 46%);
+  min-width: 320px;
   display: flex;
   flex-direction: column;
-  border-left: 1px solid var(--line);
   background: #0c0e12;
   position: relative;
   z-index: 24;
@@ -436,15 +436,44 @@ body {
 
 /* ---------- panel ---------- */
 .panel {
-  width: 380px;
+  width: var(--panel-w, 380px);
+  min-width: 280px;
   flex: none;
   background: var(--panel);
-  border-left: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   min-height: 0;
   z-index: 25;
 }
+
+/* ---------- resizable splitters ---------- */
+.splitter {
+  flex: none;
+  width: 6px;
+  align-self: stretch;
+  background: var(--line);
+  cursor: col-resize;
+  position: relative;
+  z-index: 26;
+  touch-action: none;
+}
+.splitter[hidden] { display: none; }
+.splitter::before {          /* fat, invisible hit area */
+  content: "";
+  position: absolute; inset: 0 -5px;
+}
+.splitter::after {           /* centered grip pips */
+  content: "";
+  position: absolute; top: 50%; left: 50%;
+  width: 2px; height: 26px;
+  transform: translate(-50%, -50%);
+  border-radius: 2px;
+  background: var(--ink-2);
+  opacity: 0.35;
+}
+.splitter:hover, .splitter.dragging { background: var(--accent); }
+.splitter:hover::after, .splitter.dragging::after { opacity: 0.8; background: #fff; }
+.splitter:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .panel-scroll { overflow-y: auto; padding: 16px; display: grid; gap: 14px; flex: 1; }
 .panel-scroll[hidden] { display: none; }
 .empty {
@@ -570,6 +599,92 @@ body {
 .datepill b { font-weight: 700; letter-spacing: 0.1em; }
 .datepill.before { left: 8px; }
 .datepill.after { right: 8px; }
+.viewer-expand {
+  position: absolute; top: 8px; right: 8px;
+  width: 28px; height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(12, 14, 18, 0.6);
+  color: #fff;
+  cursor: pointer;
+  z-index: 7;               /* above the slider input (z 6) so it stays clickable */
+  font-size: 15px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+}
+.viewer-expand:hover { background: rgba(12, 14, 18, 0.85); }
+
+/* ---------- lightbox (expanded before/after) ---------- */
+.lightbox {
+  position: fixed; inset: 0;
+  z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+}
+.lightbox[hidden] { display: none; }
+.lb-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(8, 10, 14, 0.84);
+  backdrop-filter: blur(2px);
+}
+.lb-stage {
+  position: relative; z-index: 1;
+  width: min(94vw, 1400px);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.lb-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.lb-cat { color: #fff; font-size: 14px; font-weight: 650; }
+.lb-close {
+  width: 34px; height: 34px;
+  border: none; border-radius: 8px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff; cursor: pointer; font-size: 15px;
+  flex: none;
+}
+.lb-close:hover { background: rgba(255, 255, 255, 0.28); }
+.lb-viewer {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  max-height: 80vh;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #101318;
+}
+.lb-viewer img.lb-img {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: contain;
+  background: #101318;
+}
+.lb-viewer img.lb-img.after { clip-path: inset(0 0 0 50%); }
+.lb-viewer .handle {
+  position: absolute; top: 0; bottom: 0; left: 50%;
+  width: 2px; margin-left: -1px;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+  pointer-events: none; z-index: 4;
+}
+.lb-viewer .grip {
+  position: absolute; top: 50%; left: 50%;
+  width: 34px; height: 34px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: #fff; color: #20242E;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none; z-index: 4;
+}
+.lb-viewer input[type="range"] {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  opacity: 0; cursor: ew-resize; margin: 0; z-index: 6;
+}
+.lb-evidence {
+  margin: 0;
+  color: #E9E7E1;
+  font-size: 13.5px;
+  line-height: 1.5;
+  text-align: center;
+  text-wrap: balance;
+}
 
 /* ---------- evidence & descriptions ---------- */
 .evidence {
@@ -633,19 +748,21 @@ body {
 /* medium screens: street view takes the map's place rather than a third column */
 @media (max-width: 1180px) {
   .shell.sv-open .map-wrap { display: none; }
-  .streetview { border-left: none; }
+  .shell.sv-open #svSplitter { display: none; }
+  .streetview { width: var(--sv-w, 50%); }
+  .shell.sv-open .streetview { flex: 1 1 0; }
 }
 @media (max-width: 760px) {
   .brand .tag { display: none; }
   .stats .stat:nth-child(-n+2) { display: none; }
   .shell { flex-direction: column; }
+  .splitter { display: none; }
   .panel {
     width: auto;
-    border-left: none;
     border-top: 1px solid var(--line);
     max-height: 52vh;
   }
-  .streetview { border-left: none; border-top: 1px solid var(--line); min-height: 300px; }
+  .streetview { width: auto; border-top: 1px solid var(--line); min-height: 300px; }
   .ribbon { display: none; }
   .legend { bottom: auto; top: 56px; }
 }
