@@ -69,6 +69,9 @@ def connect(db_path: str | Path | None = None) -> sqlite3.Connection:
     conn = sqlite3.connect(str(db_path or config.DB_PATH))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # Background "search this area" jobs write from their own threads; wait on a
+    # briefly-locked DB instead of erroring out immediately.
+    conn.execute("PRAGMA busy_timeout = 5000")
     return conn
 
 

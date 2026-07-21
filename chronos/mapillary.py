@@ -168,18 +168,32 @@ class MapillaryClient:
     # -- public bbox fetch with auto-tiling -----------------------------------
 
     def fetch_bbox(
-        self, west: float, south: float, east: float, north: float, *, limit: int
+        self,
+        west: float,
+        south: float,
+        east: float,
+        north: float,
+        *,
+        limit: int,
+        time_budget_s: float | None = None,
     ) -> list[Feature]:
-        """Fetch all images in a bbox, tiling + subdividing to dodge HTTP 500s.
+        """Fetch images in a bbox, tiling + subdividing to dodge HTTP 500s.
 
         Returns up to ``limit`` unique features (by id). A depth-first stack of
         tiles is worked through; any tile the endpoint rejects is split into four
         quadrants and pushed back, down to ``_MIN_TILE_DEG``.
+
+        ``time_budget_s`` caps wall-clock time: in a very dense area the recursive
+        subdivision can otherwise run for minutes, so the interactive "search this
+        area" flow passes a budget and accepts whatever imagery it gathered.
         """
         seen: dict[str, Feature] = {}
         stack = list(_grid_tiles(west, south, east, north, _START_TILE_DEG))
+        start = time.monotonic()
 
         while stack and len(seen) < limit:
+            if time_budget_s is not None and time.monotonic() - start > time_budget_s:
+                break
             w, s, e, n = stack.pop()
             try:
                 for feat in self._fetch_tile(w, s, e, n):

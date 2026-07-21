@@ -25,6 +25,11 @@
     categoriesOff: new Set(),
     showUnchanged: false,
     selected: null,
+    // "search this area" flow
+    searchReady: false,
+    areaBusy: false,
+    areaBbox: null,
+    areaJudgeLimit: 0,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -72,6 +77,10 @@
     });
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
     map.on("click", deselect);
+    // Offer to run detection on a new area once the user pans/zooms.
+    map.on("moveend", () => {
+      if (state.searchReady && !state.areaBusy) showAreaIdle();
+    });
   } catch (err) {
     const ribbon = $("ribbon");
     ribbon.innerHTML = "<b>Map unavailable</b> — " + err.message;
@@ -123,39 +132,45 @@
       select(pairId);
       if (params.get("expand")) openLightbox();
     }
+
+    // Enable "search this area" only after the initial view settles, so the
+    // opening fit-to-markers move doesn't pop the button up immediately.
+    setTimeout(() => { state.searchReady = true; }, 1200);
+  }
+
+  function addMarker(change) {
+    if (!map || state.markers.has(change.pair_id)) return;
+    const el = document.createElement("button");
+    const label = change.changed
+      ? CATEGORY_LABEL[change.category] || change.category
+      : "no change";
+    el.className = "marker" + (change.changed ? "" : " nochange");
+    if (change.changed && CATEGORY_SHAPE[change.category]) {
+      el.classList.add(CATEGORY_SHAPE[change.category]);
+    }
+    el.title = label + " · " + change.magnitude;
+    el.setAttribute(
+      "aria-label",
+      label + " at " + change.lat.toFixed(5) + ", " + change.lon.toFixed(5)
+    );
+    const dot = document.createElement("span");
+    dot.className = "dot";
+    el.appendChild(dot);
+    if (change.changed) {
+      el.style.setProperty("--cat", "var(--c-" + change.category + ")");
+    }
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      select(change.pair_id);
+    });
+    const marker = new maplibregl.Marker({ element: el })
+      .setLngLat([change.lon, change.lat])
+      .addTo(map);
+    state.markers.set(change.pair_id, { marker, el, change });
   }
 
   function buildMarkers() {
-    if (!map) return;
-    for (const change of state.changes) {
-      const el = document.createElement("button");
-      const label = change.changed
-        ? CATEGORY_LABEL[change.category] || change.category
-        : "no change";
-      el.className = "marker" + (change.changed ? "" : " nochange");
-      if (change.changed && CATEGORY_SHAPE[change.category]) {
-        el.classList.add(CATEGORY_SHAPE[change.category]);
-      }
-      el.title = label + " · " + change.magnitude;
-      el.setAttribute(
-        "aria-label",
-        label + " at " + change.lat.toFixed(5) + ", " + change.lon.toFixed(5)
-      );
-      const dot = document.createElement("span");
-      dot.className = "dot";
-      el.appendChild(dot);
-      if (change.changed) {
-        el.style.setProperty("--cat", "var(--c-" + change.category + ")");
-      }
-      el.addEventListener("click", (e) => {
-        e.stopPropagation();
-        select(change.pair_id);
-      });
-      const marker = new maplibregl.Marker({ element: el })
-        .setLngLat([change.lon, change.lat])
-        .addTo(map);
-      state.markers.set(change.pair_id, { marker, el, change });
-    }
+    for (const change of state.changes) addMarker(change);
   }
 
   function fitToMarkers() {
@@ -380,6 +395,156 @@
   $("lbBackdrop").addEventListener("click", closeLightbox);
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !$("lightbox").hidden) closeLightbox();
+  });
+
+  /* ================= "Search this area" (two-step: find, then judge) ========= */
+
+  function setArea(stateName, label, opts) {
+    opts = opts || {};
+    const btn = $("areaBtn");
+    btn.dataset.state = stateName;
+    $("areaLabel").textContent = label;
+    btn.disabled = !!opts.disabled;
+    btn.classList.toggle("spinning", !!opts.spinning);
+    $("areaIco").textContent = opts.spinning
+      ? "↻"
+      : stateName === "found"
+      ? "⚖"
+      : "⌕";
+    $("areaSearch").hidden = false;
+  }
+  function showAreaIdle() {
+    setArea("idle", "Search this area", {});
+  }
+  function hideArea() {
+    $("areaSearch").hidden = true;
+  }
+
+  async function postJob(path, query) {
+    const r = await fetch(path + "?" + query, { method: "POST" });
+    if (!r.ok) {
+      let detail = "request failed";
+      try { detail = (await r.json()).detail || detail; } catch (_) {}
+      throw new Error(detail);
+    }
+    return r.json();
+  }
+  function pollJob(jobId, onProgress) {
+    return new Promise((resolve, reject) => {
+      const tick = async () => {
+        let j;
+        try {
+          j = await fetch("/api/job/" + jobId).then((r) => r.json());
+        } catch (err) {
+          return reject(err);
+        }
+        if (j.status === "done") return resolve(j.result);
+        if (j.status === "error") return reject(new Error(j.error || "job failed"));
+        if (onProgress) onProgress(j);
+        setTimeout(tick, 900);
+      };
+      tick();
+    });
+  }
+  function bboxQuery() {
+    const b = map.getBounds();
+    state.areaBbox = {
+      west: b.getWest(), south: b.getSouth(),
+      east: b.getEast(), north: b.getNorth(),
+    };
+    return (
+      "west=" + state.areaBbox.west + "&south=" + state.areaBbox.south +
+      "&east=" + state.areaBbox.east + "&north=" + state.areaBbox.north
+    );
+  }
+
+  async function startSearch() {
+    state.areaBusy = true;
+    setArea("searching", "Fetching imagery…", { spinning: true, disabled: true });
+    try {
+      const { job_id } = await postJob("/api/search_area", bboxQuery());
+      const res = await pollJob(job_id, (j) =>
+        setArea("searching", (j.phase || "working") + "…", { spinning: true, disabled: true })
+      );
+      state.areaBusy = false;
+      if (!res.candidates) {
+        setArea("idle", "No new pairs found here", {});
+        setTimeout(() => { if (!state.areaBusy) hideArea(); }, 2200);
+        return;
+      }
+      state.areaJudgeLimit = res.judge_limit;
+      setArea(
+        "found",
+        "Judge " + res.judge_limit + " · ~$" + res.est_cost.toFixed(2),
+        {}
+      );
+    } catch (err) {
+      state.areaBusy = false;
+      setArea("idle", err.message || "Search failed", {});
+      setTimeout(() => { if (!state.areaBusy) showAreaIdle(); }, 2600);
+    }
+  }
+
+  async function startJudge() {
+    if (!state.areaBbox) return;
+    state.areaBusy = true;
+    setArea("judging", "Judging…", { spinning: true, disabled: true });
+    try {
+      const q = bboxFromState() + "&limit=" + state.areaJudgeLimit;
+      const { job_id } = await postJob("/api/judge_area", q);
+      const res = await pollJob(job_id, (j) =>
+        setArea(
+          "judging",
+          j.total ? "Judging " + j.done + "/" + j.total + "…" : "Judging…",
+          { spinning: true, disabled: true }
+        )
+      );
+      state.areaBusy = false;
+      addChanges(res.changes || []);
+      await refreshStats();
+      const nChanged = (res.changes || []).filter((c) => c.changed).length;
+      setArea("idle", "Added " + nChanged + " change" + (nChanged === 1 ? "" : "s"), {});
+      setTimeout(() => { if (!state.areaBusy) hideArea(); }, 2600);
+    } catch (err) {
+      state.areaBusy = false;
+      setArea("found", err.message || "Judge failed — retry", {});
+    }
+  }
+
+  // Rebuild the query from the stored bbox (map may have moved during judging).
+  function bboxFromState() {
+    const b = state.areaBbox;
+    return "west=" + b.west + "&south=" + b.south + "&east=" + b.east + "&north=" + b.north;
+  }
+
+  function addChanges(changes) {
+    let added = 0;
+    for (const c of changes) {
+      if (state.markers.has(c.pair_id)) continue;
+      state.changes.push(c);
+      addMarker(c);
+      added++;
+    }
+    if (added) {
+      buildLegend();
+      applyFilters();
+    }
+  }
+
+  async function refreshStats() {
+    try {
+      const s = await fetch("/api/stats").then((r) => r.json());
+      $("statImages").textContent = s.images;
+      $("statPairs").textContent = s.pairs;
+      $("statJudged").textContent = s.judged;
+      $("statChanged").textContent = s.changed;
+    } catch (_) {}
+  }
+
+  $("areaBtn").addEventListener("click", () => {
+    const st = $("areaBtn").dataset.state;
+    if (st === "found") startJudge();
+    else if (!state.areaBusy) startSearch();
   });
 
   /* ================= Street View mode (pegman + mapillary-js) ================= */
