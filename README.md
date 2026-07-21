@@ -5,6 +5,8 @@ imagery. Chronos pairs Mapillary photos of the same spot taken years apart,
 judges each pair with a vision LLM, and puts the results on a map with a
 before/after slider.
 
+**Live demo: [chronos-explorer.onrender.com](https://chronos-explorer.onrender.com)**
+
 ![Chronos map UI](docs/screenshot-light.png)
 
 Big changes (construction, demolition) are already tracked in permit databases.
@@ -101,6 +103,8 @@ anything on judging. `inspect --image-size 2048` sends higher-resolution
 thumbnails for surface-focused runs.
 
 ## Live demo
+
+Live at **[chronos-explorer.onrender.com](https://chronos-explorer.onrender.com)**.
 
 The deployed explorer is deliberately read-only. It serves the curated
 `demo_data/` bundle (a SQLite snapshot plus only the thumbnails used by judged
